@@ -28,6 +28,13 @@ func TestNextToken(t *testing.T) {
 
 		10 == 10;
 		10 != 9;
+
+		"foobar"
+		"foo bar"
+
+		[1, 2];
+
+		{"foo": "bar"};
 	`
 
 	tests := []struct {
@@ -135,6 +142,27 @@ func TestNextToken(t *testing.T) {
 		{token.INT, "10"},
 		{token.NOT_EQ, "!="},
 		{token.INT, "9"},
+		{token.SEMICOLON, ";"},
+
+		// foobar
+		{token.STRING, "foobar"},
+		// foo bar
+		{token.STRING, "foo bar"},
+
+		// [1, 2];
+		{token.LBRACKET, "["},
+		{token.INT, "1"},
+		{token.COMMA, ","},
+		{token.INT, "2"},
+		{token.RBRACKET, "]"},
+		{token.SEMICOLON, ";"},
+
+		// {"foo": "bar"};
+		{token.LBRACE, "{"},
+		{token.STRING, "foo"},
+		{token.COLON, ":"},
+		{token.STRING, "bar"},
+		{token.RBRACE, "}"},
 		{token.SEMICOLON, ";"},
 
 		// End of file

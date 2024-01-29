@@ -25,6 +25,8 @@ const (
 	PREFIX // -X or !X
 	// CALL is the call precedence
 	CALL // myFunction(X)
+	// INDEX is the index precedence
+	INDEX // array[index]
 )
 
 // precedences
@@ -38,6 +40,7 @@ var precedences = map[token.TokenType]int{
 	token.SLASH:    PRODUCT,
 	token.ASTERISK: PRODUCT,
 	token.LPAREN:   CALL,
+	token.LBRACKET: INDEX,
 }
 
 // Parser is a type that represents a parser
@@ -80,6 +83,12 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerPrefix(token.BANG, p.parsePrefixExpression)
 	p.registerPrefix(token.MINUS, p.parsePrefixExpression)
 
+	p.registerPrefix(token.STRING, p.parseStringLiteral)
+
+	p.registerPrefix(token.LBRACKET, p.parseArrayLiteral)
+
+	p.registerPrefix(token.LBRACE, p.parseHashLiteral)
+
 	// Register infix parsing functions
 	p.infixParseFns = make(map[token.TokenType]infixParseFn)
 	p.registerInfix(token.PLUS, p.parseInfixExpression)
@@ -91,6 +100,8 @@ func New(l *lexer.Lexer) *Parser {
 	p.registerInfix(token.LT, p.parseInfixExpression)
 	p.registerInfix(token.GT, p.parseInfixExpression)
 	p.registerInfix(token.LPAREN, p.parseCallExpression)
+
+	p.registerInfix(token.LBRACKET, p.parseIndexExpression)
 
 	// Read two tokens to set curToken and peekToken
 	p.nextToken()
@@ -212,6 +223,101 @@ func (p *Parser) parseIfExpression() ast.Expression {
 	}
 
 	return expression
+}
+
+// parseHashLiteral parses a hash literal
+func (p *Parser) parseHashLiteral() ast.Expression {
+	defer untrace(trace("parseHashLiteral"))
+	hash := &ast.HashLiteral{Token: p.curToken}
+	hash.Pairs = make(map[ast.Expression]ast.Expression)
+
+	// Loop through all the pairs until we reach a closing brace
+	for !p.peekTokenIs(token.RBRACE) {
+		// Read the next token
+		p.nextToken()
+
+		// Parse the key
+		key := p.parseExpression(LOWEST)
+
+		// Check if the next token is a colon
+		if !p.expectPeek(token.COLON) {
+			return nil
+		}
+
+		// Read the next token
+		p.nextToken()
+
+		// Parse the value
+		value := p.parseExpression(LOWEST)
+
+		// Add the pair
+		hash.Pairs[key] = value
+
+		// Check if the next token is a comma
+		if !p.peekTokenIs(token.RBRACE) && !p.expectPeek(token.COMMA) {
+			return nil
+		}
+	}
+
+	// Check if the next token is a closing brace
+	if !p.expectPeek(token.RBRACE) {
+		return nil
+	}
+
+	return hash
+}
+
+// parseArrayLiteral parses an array literal
+func (p *Parser) parseArrayLiteral() ast.Expression {
+	defer untrace(trace("parseArrayLiteral"))
+	array := &ast.ArrayLiteral{Token: p.curToken}
+
+	// Parse the elements
+	array.Elements = p.parseExpressionList(token.RBRACKET)
+
+	return array
+}
+
+// parseExpressionList parses an expression list
+func (p *Parser) parseExpressionList(end token.TokenType) []ast.Expression {
+	defer untrace(trace("parseExpressionList"))
+	list := []ast.Expression{}
+
+	// Check if the next token is the end token
+	if p.peekTokenIs(end) {
+		// Read the next token
+		p.nextToken()
+		return list
+	}
+
+	// Read the next token
+	p.nextToken()
+
+	// Parse the first expression
+	list = append(list, p.parseExpression(LOWEST))
+
+	// Loop through all the expressions
+	for p.peekTokenIs(token.COMMA) {
+		// Read the next token
+		p.nextToken()
+		p.nextToken()
+
+		// Parse the expression
+		list = append(list, p.parseExpression(LOWEST))
+	}
+
+	// Check if the next token is the end token
+	if !p.expectPeek(end) {
+		return nil
+	}
+
+	return list
+}
+
+// parseStringLiteral parses a string literal
+func (p *Parser) parseStringLiteral() ast.Expression {
+	defer untrace(trace("parseStringLiteral"))
+	return &ast.StringLiteral{Token: p.curToken, Value: p.curToken.Literal}
 }
 
 // parseFunctionLiteral parses a function literal
@@ -342,48 +448,31 @@ func (p *Parser) parseInfixExpression(left ast.Expression) ast.Expression {
 	return expression
 }
 
-// parseCallExpression parses a call expression
-func (p *Parser) parseCallExpression(function ast.Expression) ast.Expression {
-	defer untrace(trace("parseCallExpression"))
-	exp := &ast.CallExpression{Token: p.curToken, Function: function}
-	exp.Arguments = p.parseCallArguments()
-	return exp
-}
-
-// parseCallArguments parses call arguments
-func (p *Parser) parseCallArguments() []ast.Expression {
-	defer untrace(trace("parseCallArguments"))
-	args := []ast.Expression{}
-
-	// Check if the next token is a closing parenthesis
-	if p.peekTokenIs(token.RPAREN) {
-		// Read the next token
-		p.nextToken()
-		return args
-	}
+// parseIndexExpression parses an index expression
+func (p *Parser) parseIndexExpression(left ast.Expression) ast.Expression {
+	defer untrace(trace("parseIndexExpression"))
+	expression := &ast.IndexExpression{Token: p.curToken, Left: left}
 
 	// Read the next token
 	p.nextToken()
 
-	// Parse the first argument
-	args = append(args, p.parseExpression(LOWEST))
+	// Parse the index
+	expression.Index = p.parseExpression(LOWEST)
 
-	// Loop through all the arguments
-	for p.peekTokenIs(token.COMMA) {
-		// Read the next token
-		p.nextToken()
-		p.nextToken()
-
-		// Parse the argument
-		args = append(args, p.parseExpression(LOWEST))
-	}
-
-	// Check if the next token is a closing parenthesis
-	if !p.expectPeek(token.RPAREN) {
+	// Check if the next token is a closing bracket
+	if !p.expectPeek(token.RBRACKET) {
 		return nil
 	}
 
-	return args
+	return expression
+}
+
+// parseCallExpression parses a call expression
+func (p *Parser) parseCallExpression(function ast.Expression) ast.Expression {
+	defer untrace(trace("parseCallExpression"))
+	exp := &ast.CallExpression{Token: p.curToken, Function: function}
+	exp.Arguments = p.parseExpressionList(token.RPAREN)
+	return exp
 }
 
 // curPrecedence returns the precedence of the current token

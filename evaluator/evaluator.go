@@ -90,6 +90,41 @@ func Eval(node ast.Node, env *object.Environment) object.Object {
 			Env:        env,
 		}
 
+	// String literals
+	case *ast.StringLiteral:
+		return &object.String{Value: node.Value}
+
+	// Array literals
+	case *ast.ArrayLiteral:
+		// Evaluate each element of the array
+		elements := evalExpressions(node.Elements, env)
+		if len(elements) == 1 && isError(elements[0]) {
+			return elements[0]
+		}
+		// Return an Array object
+		return &object.Array{Elements: elements}
+
+	// Index expressions
+	case *ast.IndexExpression:
+		// Evaluate the left side of the expression
+		left := Eval(node.Left, env)
+		if isError(left) {
+			return left
+		}
+
+		// Evaluate the index
+		index := Eval(node.Index, env)
+		if isError(index) {
+			return index
+		}
+
+		// Return the evaluated index expression
+		return evalIndexExpression(left, index)
+
+	// Hash literals
+	case *ast.HashLiteral:
+		return evalHashLiteral(node, env)
+
 	// Call expressions
 	case *ast.CallExpression:
 		// Evaluate the function
@@ -112,18 +147,23 @@ func Eval(node ast.Node, env *object.Environment) object.Object {
 
 // Helper function to apply functions
 func applyFunction(fn object.Object, args []object.Object) object.Object {
-	// Type assertion
-	function, ok := fn.(*object.Function)
-	if !ok {
+	switch fn := fn.(type) {
+	// Function object
+	case *object.Function:
+		// Extend the environment for the function
+		extendedEnv := extendFunctionEnv(fn, args)
+		// Evaluate the function body
+		evaluated := Eval(fn.Body, extendedEnv)
+		// Unwrap the return value
+		return unwrapReturnValue(evaluated)
+	// Builtin function
+	case *object.Builtin:
+		// Call the builtin function
+		return fn.Fn(args...)
+	// Otherwise, return an error
+	default:
 		return newError("not a function: %s", fn.Type())
 	}
-
-	// Create a new environment for the function
-	extendedEnv := extendFunctionEnv(function, args)
-
-	// Evaluate the function body
-	evaluated := Eval(function.Body, extendedEnv)
-	return unwrapReturnValue(evaluated)
 }
 
 // Helper function to extend the environment for a function
@@ -149,6 +189,87 @@ func unwrapReturnValue(obj object.Object) object.Object {
 	return obj
 }
 
+// Helper function to evaluate hash literals
+func evalHashLiteral(node *ast.HashLiteral, env *object.Environment) object.Object {
+	// Create a new hash map
+	pairs := make(map[object.HashKey]object.HashPair)
+
+	// Evaluate each key-value pair
+	for keyNode, valueNode := range node.Pairs {
+		// Evaluate the key
+		key := Eval(keyNode, env)
+		if isError(key) {
+			return key
+		}
+
+		// Get the hash key
+		hashKey, ok := key.(object.Hashable)
+		if !ok {
+			return newError("unusable as hash key: %s", key.Type())
+		}
+
+		// Evaluate the value
+		value := Eval(valueNode, env)
+		if isError(value) {
+			return value
+		}
+
+		// Get the hash value
+		hashed := hashKey.HashKey()
+		pairs[hashed] = object.HashPair{Key: key, Value: value}
+	}
+
+	// Return a Hash object
+	return &object.Hash{Pairs: pairs}
+}
+
+// Helper function to evaluate index expressions
+func evalIndexExpression(left, index object.Object) object.Object {
+	switch {
+	// If the left side is an array and the index is an integer, evaluate the index expression
+	case left.Type() == object.ARRAY_OBJ && index.Type() == object.INTEGER_OBJ:
+		return evalArrayIndexExpression(left, index)
+	// If the left side is a hash, evaluate the index expression
+	case left.Type() == object.HASH_OBJ:
+		return evalHashIndexExpression(left, index)
+	// Otherwise, return NULL
+	default:
+		return newError("index operator not supported: %s", left.Type())
+	}
+}
+
+// Helper function to evaluate hash index expressions
+func evalHashIndexExpression(hash, index object.Object) object.Object {
+	// Get the hash and index values
+	hashObject := hash.(*object.Hash)
+	key, ok := index.(object.Hashable)
+	if !ok {
+		return newError("unusable as hash key: %s", index.Type())
+	}
+	// Get the hash key
+	pair, ok := hashObject.Pairs[key.HashKey()]
+	if !ok {
+		return NULL
+	}
+	// Otherwise, return the value at the hash key
+	return pair.Value
+}
+
+// Helper function to evaluate array index expressions
+func evalArrayIndexExpression(array, index object.Object) object.Object {
+	// Get the array and index values
+	arrayObject := array.(*object.Array)
+	idx := index.(*object.Integer).Value
+	max := int64(len(arrayObject.Elements) - 1)
+
+	// If the index is out of bounds, return NULL
+	if idx < 0 || idx > max {
+		return NULL
+	}
+	// Otherwise, return the element at the index
+	return arrayObject.Elements[idx]
+}
+
 // Helper function to evaluate expressions
 func evalExpressions(exps []ast.Expression, env *object.Environment) []object.Object {
 	var result []object.Object
@@ -170,12 +291,18 @@ func evalExpressions(exps []ast.Expression, env *object.Environment) []object.Ob
 func evalIdentifier(node *ast.Identifier, env *object.Environment) object.Object {
 	// Get the value of the identifier from the environment
 	val, ok := env.Get(node.Value)
-	if !ok {
-		// If the identifier is not found in the environment, return an error
-		return newError("identifier not found: " + node.Value)
+	if ok {
+		// If the identifier is in the environment, return the value
+		return val
+	}
+
+	builtin, ok := builtins[node.Value]
+	if ok {
+		// If the identifier is a builtin, return the builtin
+		return builtin
 	}
 	// Otherwise, return the value
-	return val
+	return newError("identifier not found: " + node.Value)
 }
 
 // Helper function to evaluate programs
@@ -248,6 +375,9 @@ func evalPrefixExpression(operator string, right object.Object) object.Object {
 // Helper function to evaluate infix expressions
 func evalInfixExpression(operator string, left, right object.Object) object.Object {
 	switch {
+	// If the left and right sides are both strings, evaluate the string expression
+	case left.Type() == object.STRING_OBJ && right.Type() == object.STRING_OBJ:
+		return evalStringInfixExpression(operator, left, right)
 	// If the left and right sides are both integers, evaluate the integer expression
 	case left.Type() == object.INTEGER_OBJ && right.Type() == object.INTEGER_OBJ:
 		return evalIntegerInfixExpression(operator, left, right)
@@ -265,6 +395,19 @@ func evalInfixExpression(operator string, left, right object.Object) object.Obje
 		return newError("unknown operator: %s %s %s",
 			left.Type(), operator, right.Type())
 	}
+}
+
+// Helper function to evaluate string infix expressions
+func evalStringInfixExpression(operator string, left, right object.Object) object.Object {
+	// If the operator is "+", concatenate the strings
+	if operator != "+" {
+		return newError("unknown operator: %s %s %s",
+			left.Type(), operator, right.Type())
+	}
+	// Otherwise, concatenate the strings
+	leftVal := left.(*object.String).Value
+	rightVal := right.(*object.String).Value
+	return &object.String{Value: leftVal + rightVal}
 }
 
 // Helper function to evaluate integer infix expressions

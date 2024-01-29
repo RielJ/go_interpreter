@@ -465,6 +465,14 @@ func TestOperatorPrecedenceParsing(t *testing.T) {
 			"add(a + b + c * d / f + g);",
 			"add((((a + b) + ((c * d) / f)) + g))",
 		},
+		{
+			"a * [1, 2, 3, 4][b * c] * d;",
+			"((a * ([1, 2, 3, 4][(b * c)])) * d)",
+		},
+		{
+			"add(a * b[2], b[1], 2 * [1, 2][1]);",
+			"add((a * (b[2])), (b[1]), (2 * ([1, 2][1])))",
+		},
 	}
 
 	// Loop through the tests
@@ -1083,4 +1091,347 @@ func TestCallExpressionParameterParsing(t *testing.T) {
 		t.Logf("Program: %s", program.String())
 
 	}
+}
+
+func TestStringLiteralExpression(t *testing.T) {
+	input := `"hello world";`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+
+	// Check the parser errors
+	checkParserErrors(t, p)
+
+	// Check the length of the program
+	if len(program.Statements) != 1 {
+		t.Fatalf(
+			"program has not enough statements. got=%d",
+			len(program.Statements),
+		)
+	}
+
+	// Check the type of the statement
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf(
+			"program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0],
+		)
+	}
+
+	// Check the type of the expression
+	literal, ok := stmt.Expression.(*ast.StringLiteral)
+	if !ok {
+		t.Fatalf(
+			"stmt is not ast.StringLiteral. got=%T",
+			stmt.Expression,
+		)
+	}
+
+	// Check the value of the literal
+	if literal.Value != "hello world" {
+		t.Errorf(
+			"literal.Value not %s. got=%s",
+			"hello world",
+			literal.Value,
+		)
+	}
+
+	t.Logf("TestStringLiteralExpression passed, parsed %d statements", len(program.Statements))
+	t.Logf("Program: %s", program.String())
+}
+
+func TestParsingArrayLiterals(t *testing.T) {
+	input := `[1, 2 * 2, 3 + 3]`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+
+	// Check the parser errors
+	checkParserErrors(t, p)
+
+	// Check the length of the program
+	if len(program.Statements) != 1 {
+		t.Fatalf(
+			"program has not enough statements. got=%d",
+			len(program.Statements),
+		)
+	}
+
+	// Type assertion
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf(
+			"program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0],
+		)
+	}
+
+	// Type assertion
+	array, ok := stmt.Expression.(*ast.ArrayLiteral)
+	if !ok {
+		t.Fatalf(
+			"stmt is not ast.ArrayLiteral. got=%T",
+			stmt.Expression,
+		)
+	}
+
+	// Check the length of the array
+	if len(array.Elements) != 3 {
+		t.Fatalf(
+			"array has not enough elements. got=%d",
+			len(array.Elements),
+		)
+	}
+
+	// Check the first element
+	testIntegerLiteral(t, array.Elements[0], 1)
+
+	// Check the second element
+	testInfixExpression(t, array.Elements[1], 2, "*", 2)
+
+	// Check the third element
+	testInfixExpression(t, array.Elements[2], 3, "+", 3)
+
+	t.Logf("TestParsingArrayLiterals passed, parsed %d statements", len(program.Statements))
+	t.Logf("Program: %s", program.String())
+}
+
+func TestParsingIndexExpressions(t *testing.T) {
+	input := `myArray[1 + 1]`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+
+	// Check the parser errors
+	checkParserErrors(t, p)
+
+	// Check the length of the program
+	if len(program.Statements) != 1 {
+		t.Fatalf(
+			"program has not enough statements. got=%d",
+			len(program.Statements),
+		)
+	}
+
+	// Type assertion
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf(
+			"program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0],
+		)
+	}
+
+	// Type assertion
+	indexExp, ok := stmt.Expression.(*ast.IndexExpression)
+	if !ok {
+		t.Fatalf(
+			"stmt is not ast.IndexExpression. got=%T",
+			stmt.Expression,
+		)
+	}
+
+	// Check the identifier
+	if !testIdentifier(t, indexExp.Left, "myArray") {
+		return
+	}
+
+	// Check the index
+	if !testInfixExpression(t, indexExp.Index, 1, "+", 1) {
+		return
+	}
+
+	t.Logf("TestParsingIndexExpressions passed, parsed %d statements", len(program.Statements))
+	t.Logf("Program: %s", program.String())
+}
+
+func TestParsingHashLiteralsStringKeys(t *testing.T) {
+	input := `{"one": 1, "two": 2, "three": 3}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+
+	// Check the parser errors
+	checkParserErrors(t, p)
+
+	// Type assertion
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf(
+			"program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0],
+		)
+	}
+
+	// Type assertion
+	hash, ok := stmt.Expression.(*ast.HashLiteral)
+	if !ok {
+		t.Fatalf(
+			"stmt is not ast.HashLiteral. got=%T",
+			stmt.Expression,
+		)
+	}
+
+	// Check the length of the hash
+	if len(hash.Pairs) != 3 {
+		t.Fatalf(
+			"hash.Pairs has wrong length. got=%d",
+			len(hash.Pairs),
+		)
+	}
+
+	// Check the first pair
+	expected := map[string]int64{
+		"one":   1,
+		"two":   2,
+		"three": 3,
+	}
+
+	// Loop through the pairs
+	for key, value := range hash.Pairs {
+		literal, ok := key.(*ast.StringLiteral)
+		if !ok {
+			t.Errorf(
+				"key is not ast.StringLiteral. got=%T",
+				key,
+			)
+		}
+
+		// Check the value
+		expectedValue := expected[literal.String()]
+		testIntegerLiteral(t, value, expectedValue)
+	}
+
+	t.Logf(
+		"TestParsingHashLiteralsStringKeys passed, parsed %d statements",
+		len(program.Statements),
+	)
+	t.Logf("Program: %s", program.String())
+}
+
+func TestParsingEmptyHashLiteral(t *testing.T) {
+	input := `{}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+
+	// Check the parser errors
+	checkParserErrors(t, p)
+
+	// Type assertion
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf(
+			"program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0],
+		)
+	}
+
+	// Type assertion
+	hash, ok := stmt.Expression.(*ast.HashLiteral)
+	if !ok {
+		t.Fatalf(
+			"stmt is not ast.HashLiteral. got=%T",
+			stmt.Expression,
+		)
+	}
+
+	// Check the length of the hash
+	if len(hash.Pairs) != 0 {
+		t.Fatalf(
+			"hash.Pairs has wrong length. got=%d",
+			len(hash.Pairs),
+		)
+	}
+
+	t.Logf(
+		"TestParsingEmptyHashLiteral passed, parsed %d statements",
+		len(program.Statements),
+	)
+	t.Logf("Program: %s", program.String())
+}
+
+func TestParsingHashLiteralsWithExpressions(t *testing.T) {
+	input := `{"one": 0 + 1, "two": 10 - 8, "three": 15 / 5}`
+
+	l := lexer.New(input)
+	p := New(l)
+	program := p.ParseProgram()
+
+	// Check the parser errors
+	checkParserErrors(t, p)
+
+	// Type assertion
+	stmt, ok := program.Statements[0].(*ast.ExpressionStatement)
+	if !ok {
+		t.Fatalf(
+			"program.Statements[0] is not ast.ExpressionStatement. got=%T",
+			program.Statements[0],
+		)
+	}
+
+	// Type assertion
+	hash, ok := stmt.Expression.(*ast.HashLiteral)
+	if !ok {
+		t.Fatalf(
+			"stmt is not ast.HashLiteral. got=%T",
+			stmt.Expression,
+		)
+	}
+
+	// Check the length of the hash
+	if len(hash.Pairs) != 3 {
+		t.Fatalf(
+			"hash.Pairs has wrong length. got=%d",
+			len(hash.Pairs),
+		)
+	}
+
+	// Check the first pair
+	expected := map[string]func(ast.Expression){
+		"one": func(e ast.Expression) {
+			testInfixExpression(t, e, 0, "+", 1)
+		},
+		"two": func(e ast.Expression) {
+			testInfixExpression(t, e, 10, "-", 8)
+		},
+		"three": func(e ast.Expression) {
+			testInfixExpression(t, e, 15, "/", 5)
+		},
+	}
+
+	// Loop through the pairs
+	for key, value := range hash.Pairs {
+		literal, ok := key.(*ast.StringLiteral)
+		if !ok {
+			t.Errorf(
+				"key is not ast.StringLiteral. got=%T",
+				key,
+			)
+		}
+
+		// Check the value
+		fn, ok := expected[literal.String()]
+		if !ok {
+			t.Errorf(
+				"no test function for key %q found",
+				literal.String(),
+			)
+			continue
+		}
+
+		fn(value)
+	}
+
+	t.Logf(
+		"TestParsingHashLiteralsWithExpressions passed, parsed %d statements",
+		len(program.Statements),
+	)
+	t.Logf("Program: %s", program.String())
 }

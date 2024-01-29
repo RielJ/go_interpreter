@@ -67,6 +67,16 @@ func (l *Lexer) NextToken() token.Token {
 		tok = newToken(token.RPAREN, l.ch)
 	case ',':
 		tok = newToken(token.COMMA, l.ch)
+	case '"':
+		tok.Type = token.STRING
+		// Read the string
+		tok.Literal = l.readString()
+	case '[':
+		tok = newToken(token.LBRACKET, l.ch)
+	case ']':
+		tok = newToken(token.RBRACKET, l.ch)
+	case ':':
+		tok = newToken(token.COLON, l.ch)
 	// End of file
 	case 0:
 		tok.Literal = ""
@@ -123,6 +133,22 @@ func (l *Lexer) readNumber() string {
 		l.readChar()
 	}
 	// Return the number
+	return l.input[position:l.position]
+}
+
+// Read the entire string
+func (l *Lexer) readString() string {
+	// Save the current position
+	position := l.position + 1
+	// Read the next character
+	for {
+		l.readChar()
+		// Check if the current character is a double quote or the end of the input
+		if l.ch == '"' || l.ch == 0 {
+			break
+		}
+	}
+	// Return the string
 	return l.input[position:l.position]
 }
 

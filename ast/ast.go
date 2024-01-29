@@ -393,3 +393,118 @@ func (ce *CallExpression) String() string {
 	// Return the string
 	return out.String()
 }
+
+type StringLiteral struct {
+	Token token.Token // the token.STRING token
+	Value string
+}
+
+func (sl *StringLiteral) expressionNode() {}
+
+// TokenLiteral returns the literal value of the token
+func (sl *StringLiteral) TokenLiteral() string {
+	return sl.Token.Literal
+}
+
+// String returns the string representation of the string literal
+func (sl *StringLiteral) String() string {
+	return sl.Token.Literal
+}
+
+type ArrayLiteral struct {
+	Token    token.Token // the token.LBRACKET token
+	Elements []Expression
+}
+
+func (al *ArrayLiteral) expressionNode() {}
+
+// TokenLiteral returns the literal value of the token
+func (al *ArrayLiteral) TokenLiteral() string {
+	return al.Token.Literal
+}
+
+// String returns the string representation of the array literal
+func (al *ArrayLiteral) String() string {
+	var out bytes.Buffer
+
+	// Write the left bracket
+	out.WriteString("[")
+
+	// Write the elements
+	elements := []string{}
+	for _, e := range al.Elements {
+		elements = append(elements, e.String())
+	}
+
+	out.WriteString(strings.Join(elements, ", "))
+	out.WriteString("]")
+
+	// Return the string
+	return out.String()
+}
+
+type IndexExpression struct {
+	Token token.Token // the token.LBRACKET token
+	Left  Expression
+	Index Expression
+}
+
+func (ie *IndexExpression) expressionNode() {}
+
+// TokenLiteral returns the literal value of the token
+func (ie *IndexExpression) TokenLiteral() string {
+	return ie.Token.Literal
+}
+
+// String returns the string representation of the index expression
+func (ie *IndexExpression) String() string {
+	var out bytes.Buffer
+
+	// Write the left expression
+	out.WriteString("(")
+	out.WriteString(ie.Left.String())
+
+	// Write the left bracket
+	out.WriteString("[")
+
+	// Write the index
+	out.WriteString(ie.Index.String())
+
+	// Write the right bracket
+	out.WriteString("])")
+
+	// Return the string
+	return out.String()
+}
+
+type HashLiteral struct {
+	Token token.Token // the token.LBRACE token
+	Pairs map[Expression]Expression
+}
+
+func (hl *HashLiteral) expressionNode() {}
+
+// TokenLiteral returns the literal value of the token
+func (hl *HashLiteral) TokenLiteral() string {
+	return hl.Token.Literal
+}
+
+// String returns the string representation of the hash literal
+func (hl *HashLiteral) String() string {
+	var out bytes.Buffer
+
+	// Write the left brace
+	out.WriteString("{")
+
+	// Write the pairs
+	pairs := []string{}
+	for key, value := range hl.Pairs {
+		pairs = append(pairs, key.String()+":"+value.String())
+	}
+
+	out.WriteString(strings.Join(pairs, ", "))
+	out.WriteString("}")
+
+	// Return the string
+	return out.String()
+}
